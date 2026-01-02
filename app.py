@@ -314,6 +314,15 @@ def list_documents() -> list[dict]:
             return cur.fetchall()
 
 
+def delete_document(doc_id: int) -> None:
+    """Delete document and cascaded chunks."""
+    if not DB_URL:
+        raise RuntimeError("DATABASE_URL missing")
+    with psycopg.connect(DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM documents WHERE id = %s;", (doc_id,))
+
+
 def search_text(doc_id: int, query: str, limit: int) -> list[dict]:
     """Run BM25 text search."""
     if not DB_URL:
@@ -732,6 +741,7 @@ def main():
     uploaded = st.file_uploader(
         "Upload pdf, docx, or markdown",
         type=["pdf", "docx", "md", "markdown"],
+        help="Ingest starts immediately. Files are deduped by SHA256.",
     )
     if uploaded:
         file_hash = hashlib.sha256(uploaded.getvalue()).hexdigest()
@@ -790,14 +800,43 @@ def main():
             f"{d['filename']} (id {d['id']}, {d['chunk_count']} chunks)": d
             for d in docs
         }
-        doc_label = st.selectbox("Document", options=list(doc_map.keys()))
+        doc_label = st.selectbox(
+            "Document",
+            options=list(doc_map.keys()),
+            help="Pick the document to search.",
+        )
         doc = doc_map[doc_label]
         st.caption(f"doc id: {doc['id']} | type: {doc['file_type']}")
+        with st.expander("Delete document", expanded=False):
+            st.caption("Deletes document and all chunks.")
+            confirm = st.checkbox(
+                "Confirm delete",
+                value=False,
+                key=f"delete_confirm_{doc['id']}",
+            )
+            if st.button(
+                "Delete",
+                disabled=not confirm,
+                key=f"delete_button_{doc['id']}",
+            ):
+                try:
+                    delete_document(doc["id"])
+                    st.success("deleted")
+                    st.session_state.pop("search_results", None)
+                    st.session_state.pop("search_doc_id", None)
+                    st.rerun()
+                except Exception as exc:
+                    LOGGER.exception("delete failed")
+                    st.error(f"delete failed: {exc}")
 
         def trigger_search() -> None:
             st.session_state["do_search"] = True
 
-        st.markdown("Query")
+        st.markdown(
+            '<span title="Enter a question about the selected document.">'
+            "Query</span>",
+            unsafe_allow_html=True,
+        )
         query_col, button_col = st.columns([4, 1])
         with query_col:
             st.text_input(
@@ -805,29 +844,71 @@ def main():
                 key="query_input",
                 on_change=trigger_search,
                 label_visibility="collapsed",
+                help="Press Enter to search.",
             )
         with button_col:
-            if st.button("Search"):
+            if st.button("Search", help="Run BM25 + vector search."):
                 st.session_state["do_search"] = True
 
-        use_rerank = st.checkbox("Use Cohere rerank", value=False)
+        use_rerank = st.checkbox(
+            "Use Cohere rerank",
+            value=False,
+            help="Requires COHERE_API_KEY.",
+        )
 
         col1, col2 = st.columns(2)
         with col1:
-            top_k = st.slider("Top K", 5, 50, 20)
-            weight_text = st.slider("Text weight", 0.0, 2.0, 1.0, 0.1)
+            top_k = st.slider("Top K", 5, 50, 20, help="Results per method.")
+            weight_text = st.slider(
+                "Text weight",
+                0.0,
+                2.0,
+                1.0,
+                0.1,
+                help="RRF weight for BM25 results.",
+            )
         with col2:
-            rrf_k = st.slider("RRF K", 1, 100, 60)
-            weight_vector = st.slider("Vector weight", 0.0, 2.0, 1.0, 0.1)
+            rrf_k = st.slider(
+                "RRF K",
+                1,
+                100,
+                60,
+                help="Higher K flattens rank differences.",
+            )
+            weight_vector = st.slider(
+                "Vector weight",
+                0.0,
+                2.0,
+                1.0,
+                0.1,
+                help="RRF weight for vector results.",
+            )
 
         with st.expander("Index settings", expanded=False):
-            index_mode = st.selectbox("Vector index", options=["hnsw", "ivfflat"])
-            ef_search = st.slider("HNSW ef_search", 10, 400, 200)
-            probes = st.slider("IVFFlat probes", 1, 200, 20)
+            index_mode = st.selectbox(
+                "Vector index",
+                options=["hnsw", "ivfflat"],
+                help="Pick the pgvector index for vector search.",
+            )
+            ef_search = st.slider(
+                "HNSW ef_search",
+                10,
+                400,
+                200,
+                help="Higher recall, slower queries.",
+            )
+            probes = st.slider(
+                "IVFFlat probes",
+                1,
+                200,
+                20,
+                help="Higher recall, slower queries.",
+            )
             force_index = st.checkbox(
                 "Force index scans",
                 value=False,
                 key="force_index_search",
+                help="Disable seq/bitmap scans to show index usage.",
             )
             st.caption("Only the selected index mode setting is applied.")
 
@@ -909,13 +990,15 @@ def main():
                     "Analyze",
                     value=False,
                     key="explain_analyze",
+                    help="Run EXPLAIN ANALYZE with buffers.",
                 )
                 explain_force = st.checkbox(
                     "Force index scans",
                     value=True,
                     key="force_index_explain",
+                    help="Disable seq scans for plan clarity.",
                 )
-                if st.button("Run EXPLAIN"):
+                if st.button("Run EXPLAIN", help="Show query plans."):
                     try:
                         text_plan = explain_text(
                             doc["id"],

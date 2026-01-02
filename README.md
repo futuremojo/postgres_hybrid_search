@@ -26,11 +26,14 @@ Postgres 17 + pg_textsearch (BM25) + pgvector, single‑doc hybrid search UI in 
 - `CHUNK_OVERLAP` (default `120`)
 - `COHERE_API_KEY` (optional; required for rerank)
 - `COHERE_RERANK_MODEL` (default `rerank-english-v3.0`)
+- `APP_AUTH_USER` (optional; enable simple login)
+- `APP_AUTH_PASSWORD` (optional; enable simple login)
 
 ## Notes
 - pg_textsearch is prerelease; index format can change.
 - HNSW supports max 2000 dims, so embedding dim is 1536.
 - If Docker runs out of disk: `docker system prune -af --volumes`.
+- Tour uses driver.js from jsdelivr CDN (browser needs net access).
 
 ---
 
