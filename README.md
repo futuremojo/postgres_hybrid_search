@@ -33,7 +33,6 @@ Postgres 17 + pg_textsearch (BM25) + pgvector, single‑doc hybrid search UI in 
 - pg_textsearch is prerelease; index format can change.
 - HNSW supports max 2000 dims, so embedding dim is 1536.
 - If Docker runs out of disk: `docker system prune -af --volumes`.
-- Tour uses driver.js from jsdelivr CDN (browser needs net access).
 
 ---
 
