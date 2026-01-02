@@ -1,0 +1,31 @@
+services:
+  db:
+    build: ./db
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://app:app@db:5432/app
+    ports:
+      - "8501:8501"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg_data:
