@@ -36,6 +36,10 @@ CHUNK_TOKENS = int(os.getenv("CHUNK_TOKENS", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
 COHERE_MODEL = os.getenv("COHERE_RERANK_MODEL", "rerank-english-v3.0")
 
+# Authentication settings
+AUTH_USER = os.getenv("APP_AUTH_USER", "").strip() or "guest"
+AUTH_PASSWORD = os.getenv("APP_AUTH_PASSWORD", "").strip() or "guest"
+
 
 def check_db():
     """Check required extensions."""
@@ -59,6 +63,43 @@ def check_db():
         return "extensions ok: pg_vector (vector), pg_textsearch", True
     except Exception as exc:
         return f"db error: {exc}", False
+
+
+def check_authentication():
+    """Check if user is authenticated."""
+    def password_entered():
+        """Checks whether password entered is correct."""
+        if (st.session_state["username"] == AUTH_USER and
+            st.session_state["password"] == AUTH_PASSWORD):
+            st.session_state["authenticated"] = True
+            del st.session_state["password"]  # Don't store password
+            del st.session_state["username"]
+        else:
+            st.session_state["authenticated"] = False
+
+    # Already authenticated
+    if st.session_state.get("authenticated", False):
+        return True
+    
+    # Show login form
+    st.markdown("## 🔐 Login Required")
+    st.markdown("Please enter your credentials to access the PG Hybrid Search Demo.")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.text_input("Username", key="username", placeholder="Enter username")
+        st.text_input("Password", type="password", key="password", placeholder="Enter password")
+        st.button("Login", type="primary", on_click=password_entered)
+        
+        # Show error if authentication failed
+        if "authenticated" in st.session_state and not st.session_state["authenticated"]:
+            st.error("❌ Invalid username or password")
+        
+        # Show hint for default credentials
+        if AUTH_USER == "guest" and AUTH_PASSWORD == "guest":
+            st.info("💡 Using default credentials: guest/guest")
+    
+    return False
 
 
 def detect_file_type(filename: str) -> str:
@@ -733,9 +774,22 @@ def render_results(title: str, results: list[dict], show_scores: bool) -> None:
 def main():
     """Render Streamlit UI."""
     st.set_page_config(page_title="PG Hybrid Search Demo", layout="centered")
+    
+    # Check authentication before showing the main app
+    if not check_authentication():
+        st.stop()
+    
     st.title("PG Hybrid Search Demo")
     st.caption("Hybrid search in Postgres. Single doc flow.")
     st.caption("Expecting pg_vector (vector) + pg_textsearch extensions.")
+    
+    # Add logout button in sidebar
+    with st.sidebar:
+        if st.button("🚪 Logout"):
+            st.session_state["authenticated"] = False
+            st.rerun()
+        st.markdown("---")
+        st.markdown(f"Logged in as: **{AUTH_USER}**")
 
     st.subheader("Upload")
     uploaded = st.file_uploader(
